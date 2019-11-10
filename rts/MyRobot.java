@@ -2,7 +2,7 @@ package ai.abstraction;
 
 /**
  * @Author: Wenhang Chen
- * @Description:
+ * @Description: RTS_AI
  * @Date: Created in 16:11 10/22/2019
  * @Modified by:
  */
@@ -23,6 +23,9 @@ import rts.Player;
 import rts.PlayerAction;
 import rts.units.*;
 
+/*
+* 算法说明：对战场局势进行分析，并根据战场形势采取不同策略
+*/
 public class MyRobot extends AbstractionLayerAI {
     Random r = new Random();
     protected UnitTypeTable utt;
@@ -31,15 +34,9 @@ public class MyRobot extends AbstractionLayerAI {
     UnitType barracksType;
     UnitType heavyType;
 
-
-    // Strategy implemented by this class:
-    // If we have more than 1 "Worker": send the extra workers to attack to the nearest enemy unit
-    // If we have a base: train workers non-stop
-    // If we have a worker: do this if needed: build base, harvest resources
     public MyRobot(UnitTypeTable a_utt) {
         this(a_utt, new AStarPathFinding());
     }
-
 
     public MyRobot(UnitTypeTable a_utt, PathFinding a_pf) {
         super(a_pf);
@@ -58,73 +55,143 @@ public class MyRobot extends AbstractionLayerAI {
         }
     }
 
-
     public AI clone() {
         return new MyRobot(utt, pf);
     }
 
+    /*
+     * 1. 此函数会一直循环执行
+     * 2. 如果某处逻辑比较复杂，例如多层嵌套循环，并不会导致己方单方面决策缓慢，而是会降低整个游戏的运行速度，也就是说逻辑的复
+     *    杂程度是不会导致劣势的
+     */
     public PlayerAction getAction(int player, GameState gs) {
         PhysicalGameState pgs = gs.getPhysicalGameState();
         Player p = gs.getPlayer(player);
         PlayerAction pa = new PlayerAction();
-//        System.out.println("LightRushAI for player " + player + " (cycle " + gs.getTime() + ")");
+        // 获取回合数
+        // System.out.println("LightRushAI for player " + player + " (cycle " + gs.getTime() + ")");
 
-        // 基地行为
+        List<Unit> myBases = new ArrayList<>();       // 我方基地列表
+        List<Unit> myBarracks = new ArrayList<>();    // 我方兵营列表
+        List<Unit> myMeleeUnit = new ArrayList<>();   // 我方可攻击单位列表
+        List<Unit> myWorkers = new ArrayList<>();     // 我方worker列表
+
+        List<Unit> enemyBases = new ArrayList<>();     // 敌方基地列表
+        List<Unit> enemyBarracks = new ArrayList<>();  // 敌方兵营列表
+        List<Unit> enemyMeleeUnit = new ArrayList<>(); // 敌方攻击单位列表
+        List<Unit> enemyWorkers = new ArrayList<>();   // 敌方worker列表
+
+        // 按照类型归类
         for (Unit u : pgs.getUnits()) {
-            if (u.getType() == baseType &&
-                    u.getPlayer() == player &&
-                    gs.getActionAssignment(u) == null) {
-                baseBehavior(u, p, pgs);
+            if (u.getType() == baseType) {
+                if (u.getPlayer() == player) {
+                    myBases.add(u);
+                } else {
+                    enemyBases.add(u);
+                }
             }
         }
-
-        // 兵营行为
         for (Unit u : pgs.getUnits()) {
-            if (u.getType() == barracksType
-                    && u.getPlayer() == player
-                    && gs.getActionAssignment(u) == null) {
-                barracksBehavior(u, p, pgs);
+            if (u.getType() == barracksType) {
+                if (u.getPlayer() == player) {
+                    myBarracks.add(u);
+                } else {
+                    enemyBarracks.add(u);
+                }
             }
         }
-
-        // 攻击单位行为
-        // 可攻击但不可采集资源
         for (Unit u : pgs.getUnits()) {
             if (u.getType().canAttack && !u.getType().canHarvest &&
-                    u.getPlayer() == player &&
-                    gs.getActionAssignment(u) == null) {
-                meleeUnitBehavior(u, p, gs);
+                    u.getPlayer() == player) {
+                myMeleeUnit.add(u);
             }
         }
-
-        // behavior of workers:
-        List<Unit> workers = new LinkedList<Unit>();
         for (Unit u : pgs.getUnits()) {
             if (u.getType().canHarvest &&
                     u.getPlayer() == player) {
-                workers.add(u);
+                myWorkers.add(u);
             }
         }
-        workersBehavior(workers, p, gs);
 
+        // 开始分析战场局势
+        analyzeWar(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
 
         return translateActions(player, gs);
     }
 
-    // 基地
+    // 评估战场形式，并根据评估结果采取不同策略
+    public void analyzeWar(GameState gs, PhysicalGameState pgs, Player p,
+                           List<Unit> myBases,
+                           List<Unit> myBarracks,
+                           List<Unit> myMeleeUnit,
+                           List<Unit> myWorkers,
+                           List<Unit> enemyBases) {
+        // 双方基地之间的距离
+        double distanceOfBases = 0;
+
+        // 判断还有没有基地
+        if (myBases.size() == 0 && enemyBases.size() == 0) {
+            System.out.println("双方家都没了");
+        } else if (myBases.size() == 0) {
+            System.out.println("我们家没了");
+        } else if (enemyBases.size() == 0) {
+            System.out.println("对面家没了");
+        } else {
+            // 获取两个基地之间的距离，目前只对第一个基地进行计算
+            distanceOfBases = Math.sqrt(Math.pow(myBases.get(0).getX() - enemyBases.get(0).getX(), 2) + Math.pow(myBases.get(0).getY() - enemyBases.get(0).getY(), 2));
+        }
+
+        // 如果距离小于15，采取偷家策略
+        if (distanceOfBases < 16) {
+            stealHomeTactics(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
+        } else {
+            // 目前还没写别的策略，先全部偷家
+            stealHomeTactics(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
+        }
+    }
+
+    // 偷家策略
+    public void stealHomeTactics(GameState gs, PhysicalGameState pgs, Player p,
+                                 List<Unit> myBases,
+                                 List<Unit> myBarracks,
+                                 List<Unit> myMeleeUnit,
+                                 List<Unit> myWorkers,
+                                 List<Unit> enemyBases) {
+        // 安排起来
+        for (Unit u : myBases) {
+            // 如果没任务
+            if (gs.getActionAssignment(u) == null) {
+                baseBehavior(u, p, pgs);
+            }
+        }
+        for (Unit u : myBarracks) {
+            if (gs.getActionAssignment(u) == null) {
+                barracksBehavior(u, p, pgs);
+            }
+        }
+        for (Unit u : myMeleeUnit) {
+            if (gs.getActionAssignment(u) == null) {
+                meleeUnitBehavior(u, p, gs);
+            }
+        }
+        workersBehavior(myWorkers, p, gs);
+    }
+
+
+    // 基地行为
     public void baseBehavior(Unit u, Player p, PhysicalGameState pgs) {
         // 训练
         if (p.getResources() >= workerType.cost) train(u, workerType);
     }
 
-    // 兵营
+    // 兵营行为
     public void barracksBehavior(Unit u, Player p, PhysicalGameState pgs) {
         if (p.getResources() >= heavyType.cost) {
             train(u, heavyType);
         }
     }
 
-    // 攻击
+    // 攻击单位行为
     public void meleeUnitBehavior(Unit u, Player p, GameState gs) {
         PhysicalGameState pgs = gs.getPhysicalGameState();
         Unit closestEnemy = null;
@@ -161,6 +228,7 @@ public class MyRobot extends AbstractionLayerAI {
         }
     }
 
+    // worker行为
     public void workersBehavior(List<Unit> workers, Player p, GameState gs) {
         PhysicalGameState pgs = gs.getPhysicalGameState();
         int nbases = 0;
@@ -224,7 +292,7 @@ public class MyRobot extends AbstractionLayerAI {
                 }
             } else if (closestResource == null) {
                 // 前面已经判断过能否建造基地了，所以此时必然是没有资源同时没有基地的窘境
-                // 进退维谷，四面楚歌，此时不杀，更待何时？！背水一战！！！
+                // 进退维谷，四面楚歌，此时不杀，更待何时？！
                 meleeUnitBehavior(harvestWorker, p, gs);
             }
         }
