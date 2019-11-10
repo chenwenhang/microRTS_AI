@@ -180,7 +180,6 @@ public class MyRobot extends AbstractionLayerAI {
 
     // 基地行为
     public void baseBehavior(Unit u, Player p, PhysicalGameState pgs) {
-        // 训练
         if (p.getResources() >= workerType.cost) train(u, workerType);
     }
 
