@@ -31,6 +31,7 @@ public class MyRobot extends AbstractionLayerAI {
     UnitType baseType;
     UnitType barracksType;
     UnitType heavyType;
+    UnitType lightType;
 
     List<Long> preResource = new ArrayList<>();    // 无效资源列表ID，用于解决死锁问题
 
@@ -54,6 +55,7 @@ public class MyRobot extends AbstractionLayerAI {
             baseType = utt.getUnitType("Base");
             barracksType = utt.getUnitType("Barracks");
             heavyType = utt.getUnitType("Heavy");
+            lightType = utt.getUnitType("Light");
         }
     }
 
@@ -147,7 +149,7 @@ public class MyRobot extends AbstractionLayerAI {
         if (distanceOfBases < 16) {
             // 如果距离很小，采取偷家策略
             stealHomeTactics(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
-        } else if (distanceOfBases < 30) {
+        } else if (distanceOfBases < 20) {
             stealHomeTactics(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
         } else if (distanceOfBases < 46) {
             // 如果距离较小，采取双矿工workRush策略
@@ -174,7 +176,7 @@ public class MyRobot extends AbstractionLayerAI {
         }
         for (Unit u : myBarracks) {
             if (gs.getActionAssignment(u) == null) {
-                barracksBehavior(u, p, pgs);
+                barracksBehavior(u, p, pgs, heavyType);
             }
         }
         for (Unit u : myMeleeUnit) {
@@ -200,7 +202,7 @@ public class MyRobot extends AbstractionLayerAI {
         }
         for (Unit u : myBarracks) {
             if (gs.getActionAssignment(u) == null) {
-                barracksBehavior(u, p, pgs);
+                barracksBehavior(u, p, pgs, heavyType);
             }
         }
         for (Unit u : myMeleeUnit) {
@@ -228,7 +230,35 @@ public class MyRobot extends AbstractionLayerAI {
         }
         for (Unit u : myBarracks) {
             if (gs.getActionAssignment(u) == null) {
-                barracksBehavior(u, p, pgs);
+                barracksBehavior(u, p, pgs, heavyType);
+            }
+        }
+        for (Unit u : myMeleeUnit) {
+            if (gs.getActionAssignment(u) == null) {
+                meleeUnitBehavior(u, p, gs);
+            }
+        }
+        workersBehavior(myWorkers, p, gs, true, 2);
+    }
+
+    public void lightRushTactics(GameState gs, PhysicalGameState pgs, Player p,
+                                 List<Unit> myBases,
+                                 List<Unit> myBarracks,
+                                 List<Unit> myMeleeUnit,
+                                 List<Unit> myWorkers,
+                                 List<Unit> enemyBases) {
+        // 安排起来
+        for (Unit u : myBases) {
+            if (gs.getActionAssignment(u) == null) {
+                // 至少有两个worker，一个采矿，一个造兵营
+                if (myWorkers.size() < 2) {
+                    baseBehavior(u, p, pgs);
+                }
+            }
+        }
+        for (Unit u : myBarracks) {
+            if (gs.getActionAssignment(u) == null) {
+                barracksBehavior(u, p, pgs, lightType);
             }
         }
         for (Unit u : myMeleeUnit) {
@@ -257,7 +287,7 @@ public class MyRobot extends AbstractionLayerAI {
         }
         for (Unit u : myBarracks) {
             if (gs.getActionAssignment(u) == null) {
-                barracksBehavior(u, p, pgs);
+                barracksBehavior(u, p, pgs, heavyType);
             }
         }
         for (Unit u : myMeleeUnit) {
@@ -275,9 +305,9 @@ public class MyRobot extends AbstractionLayerAI {
     }
 
     // 兵营行为
-    public void barracksBehavior(Unit u, Player p, PhysicalGameState pgs) {
-        if (p.getResources() >= heavyType.cost) {
-            train(u, heavyType);
+    public void barracksBehavior(Unit u, Player p, PhysicalGameState pgs, UnitType type) {
+        if (p.getResources() >= type.cost) {
+            train(u, type);
         }
     }
 
@@ -406,29 +436,69 @@ public class MyRobot extends AbstractionLayerAI {
         List<Unit> unitList = pgs.getUnits();
         for (int i = 0; i < unitList.size(); i++) {
             Unit u = unitList.get(i);
-            if (u.getPlayer() == p.getID()) {
+            if (u.getPlayer() == p.getID() && u.getType() == workerType) {
                 UnitActionAssignment uaa = gs.getActionAssignment(u);
                 if (uaa == null) lock = false;
                 if (uaa != null && uaa.action.getType() != UnitAction.TYPE_NONE) {
-                    preResource.clear();
                     lock = false;
                 }
+                if (!lock)
+                    preResource.clear();
+                break;
             }
         }
 
+        // 资源列表
+        List<Unit> resourceList = new ArrayList<>();
+        List<Integer> distanceList = new ArrayList<>();
+        for (Unit u1 : pgs.getUnits()) {
+            if (u1.getType().isResource) {
+                int d = Math.abs(u1.getX() - harvestWorker.getX()) + Math.abs(u1.getY() - harvestWorker.getY());
+                resourceList.add(u1);
+                distanceList.add(d);
+            }
+        }
 
-        // 想办法去最近的资源处挖矿
-        for (Unit u2 : pgs.getUnits()) {
-            if (u2.getType().isResource) {
-                if (!lock || !preResource.contains(u2.getID())) {
-                    int d = Math.abs(u2.getX() - harvestWorker.getX()) + Math.abs(u2.getY() - harvestWorker.getY());
-                    if (closestResource == null || d < closestDistance) {
-                        closestResource = u2;
-                        closestDistance = d;
-                    }
+        // 资源距离排序
+        for (int i = 0; i < resourceList.size(); i++) {
+            for (int j = i; j < resourceList.size(); j++) {
+                if (distanceList.get(i) > distanceList.get(j)) {
+                    Integer tmpInt = distanceList.get(i);
+                    distanceList.set(i, distanceList.get(j));
+                    distanceList.set(j, tmpInt);
+                    Unit tmpUnit = resourceList.get(i);
+                    resourceList.set(i, resourceList.get(j));
+                    resourceList.set(j, tmpUnit);
                 }
             }
         }
+        System.out.println(preResource);
+        // 想办法去最近的资源处挖矿
+        for (int i = 0; i < resourceList.size(); i++) {
+            Unit u1 = resourceList.get(i);
+            if (!lock || !preResource.contains(u1.getID())) {
+                closestResource = u1;
+                break;
+            }
+        }
+
+        // 想办法去最近的资源处挖矿
+//        for (Unit u1 : pgs.getUnits()) {
+//            for (Unit u2 : pgs.getUnits()) {
+//                if (u1.getType().isResource) {
+//                    if (!lock || !preResource.contains(u1.getID())) {
+//                        int d = Math.abs(u1.getX() - harvestWorker.getX()) + Math.abs(u1.getY() - harvestWorker.getY());
+//                        if (closestResource == null || d < closestDistance) {
+//                            closestResource = u1;
+//                            closestDistance = d;
+//                        }
+//                        System.out.println(u1.getID());
+//                        System.out.println(lock ? "lock" : "no");
+//
+//                    }
+//                }
+//            }
+//        }
 
         closestDistance = 0;
         for (Unit u2 : pgs.getUnits()) {
@@ -440,19 +510,23 @@ public class MyRobot extends AbstractionLayerAI {
                 }
             }
         }
+
+        // TODO 这里需要改
+        System.out.println(harvestWorker.getX() + "    " + harvestWorker.getY());
+        System.out.println(closestResource.getX() + "    " + closestResource.getY());
         if (closestResource != null && closestBase != null) {
             AbstractAction aa = getAbstractAction(harvestWorker);
+            if (!preResource.contains(closestResource.getID())) {
+                preResource.add(closestResource.getID());
+                System.out.println("111");
+            }
             if (aa instanceof Harvest) {
                 Harvest h_aa = (Harvest) aa;
                 if (h_aa.target != closestResource || h_aa.base != closestBase) {
                     harvest(harvestWorker, closestResource, closestBase);
-                    if (!preResource.contains(closestResource.getID()))
-                        preResource.add(closestResource.getID());
                 }
             } else {
                 harvest(harvestWorker, closestResource, closestBase);
-                if (!preResource.contains(closestResource.getID()))
-                    preResource.add(closestResource.getID());
             }
         } else if (closestResource == null) {
             // 前面已经判断过能否建造基地了，所以此时必然是没有资源同时没有基地的窘境
