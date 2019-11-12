@@ -13,10 +13,7 @@ import ai.core.AI;
 import ai.abstraction.pathfinding.PathFinding;
 import ai.core.ParameterSpecification;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
 import rts.*;
 import rts.units.*;
@@ -33,7 +30,8 @@ public class MyRobot extends AbstractionLayerAI {
     UnitType heavyType;
     UnitType lightType;
 
-    List<Long> preResource = new ArrayList<>();    // 无效资源列表ID，用于解决死锁问题
+    // 对于某个单位而言的无效资源列表ID，用于解决死锁问题
+    HashMap<Long, List<Long>> preResource = new HashMap<Long, List<Long>>();
 
     public MyRobot(UnitTypeTable a_utt) {
         this(a_utt, new AStarPathFinding());
@@ -73,8 +71,6 @@ public class MyRobot extends AbstractionLayerAI {
         PhysicalGameState pgs = gs.getPhysicalGameState();
         Player p = gs.getPlayer(player);
         PlayerAction pa = new PlayerAction();
-        // 获取回合数
-        // System.out.println("LightRushAI for player " + player + " (cycle " + gs.getTime() + ")");
 
         List<Unit> myBases = new ArrayList<>();       // 我方基地列表
         List<Unit> myBarracks = new ArrayList<>();    // 我方兵营列表
@@ -131,6 +127,14 @@ public class MyRobot extends AbstractionLayerAI {
                            List<Unit> myMeleeUnit,
                            List<Unit> myWorkers,
                            List<Unit> enemyBases) {
+
+//        // 如果发生死锁，优先解决死锁
+//        if (isLock(p, gs)) {
+//            // 采取韬光养晦策略
+//            prepareTactics(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
+//            return;
+//        }
+
         // 双方基地之间的距离
         double distanceOfBases = 0;
 
@@ -169,7 +173,6 @@ public class MyRobot extends AbstractionLayerAI {
                                  List<Unit> enemyBases) {
         // 安排起来
         for (Unit u : myBases) {
-            // 如果没任务
             if (gs.getActionAssignment(u) == null) {
                 baseBehavior(u, p, pgs);
             }
@@ -187,6 +190,7 @@ public class MyRobot extends AbstractionLayerAI {
         workersBehavior(myWorkers, p, gs, false, 1);
     }
 
+    // 稍微有点脑子的workerRush策略
     public void workRushTactics(GameState gs, PhysicalGameState pgs, Player p,
                                 List<Unit> myBases,
                                 List<Unit> myBarracks,
@@ -195,7 +199,6 @@ public class MyRobot extends AbstractionLayerAI {
                                 List<Unit> enemyBases) {
         // 安排起来
         for (Unit u : myBases) {
-            // 如果没任务
             if (gs.getActionAssignment(u) == null) {
                 baseBehavior(u, p, pgs);
             }
@@ -213,6 +216,7 @@ public class MyRobot extends AbstractionLayerAI {
         workersBehavior(myWorkers, p, gs, false, 2);
     }
 
+    // 主要攻击策略——重装策略
     public void heavyRushTactics(GameState gs, PhysicalGameState pgs, Player p,
                                  List<Unit> myBases,
                                  List<Unit> myBarracks,
@@ -241,6 +245,7 @@ public class MyRobot extends AbstractionLayerAI {
         workersBehavior(myWorkers, p, gs, true, 2);
     }
 
+    // 可能以后会用的轻兵策略
     public void lightRushTactics(GameState gs, PhysicalGameState pgs, Player p,
                                  List<Unit> myBases,
                                  List<Unit> myBarracks,
@@ -269,30 +274,16 @@ public class MyRobot extends AbstractionLayerAI {
         workersBehavior(myWorkers, p, gs, true, 2);
     }
 
-    // TODO 韬光养晦模式，死锁时可能要调用此函数
+    // 韬光养晦策略，全民挖矿
     public void prepareTactics(GameState gs, PhysicalGameState pgs, Player p,
                                List<Unit> myBases,
                                List<Unit> myBarracks,
                                List<Unit> myMeleeUnit,
                                List<Unit> myWorkers,
                                List<Unit> enemyBases) {
-        // 安排起来
-        for (Unit u : myBases) {
-            if (gs.getActionAssignment(u) == null) {
-                // 至少有两个worker，一个采矿，一个造兵营
-                if (myWorkers.size() < 2) {
-                    baseBehavior(u, p, pgs);
-                }
-            }
-        }
         for (Unit u : myBarracks) {
             if (gs.getActionAssignment(u) == null) {
                 barracksBehavior(u, p, pgs, heavyType);
-            }
-        }
-        for (Unit u : myMeleeUnit) {
-            if (gs.getActionAssignment(u) == null) {
-                meleeUnitBehavior(u, p, gs);
             }
         }
         workersBehavior(myWorkers, p, gs, true, -1);
@@ -325,6 +316,7 @@ public class MyRobot extends AbstractionLayerAI {
                 }
             }
         }
+//        // 优先攻击最近单位
 //        for (Unit u2 : pgs.getUnits()) {
 //            if (u2.getPlayer() >= 0 && u2.getPlayer() != p.getID()) {
 //                if (u2.getType() == baseType) {
@@ -378,6 +370,7 @@ public class MyRobot extends AbstractionLayerAI {
         }
 
         if (freeWorkers.size() > 0) harvestWorker = freeWorkers.remove(0);
+
         // 矿工行为
         if (harvestWorker != null) {
             harvestBehavior(harvestWorker, p, gs);
@@ -397,34 +390,59 @@ public class MyRobot extends AbstractionLayerAI {
             }
         }
 
-        if (harvestNum == -1) {
-            // 如果harvestNum==-1，则采取韬光养晦模式，全民挖矿积累资源，同时造兵
-            while (freeWorkers.size() > 0) {
+//        if (harvestNum == -1) {
+//            // 全民挖矿积累资源，同时造兵
+//            while (freeWorkers.size() > 0) {
+//                harvestWorker = freeWorkers.remove(0);
+//                // 如果还有能挖矿的
+//                if (harvestWorker != null) {
+//                    harvestBehavior(harvestWorker, p, gs);
+//                }
+//            }
+//            return;
+//        } else {
+        for (int i = 0; i < harvestNum - 1; i++) {
+            if (freeWorkers.size() > 0) {
                 harvestWorker = freeWorkers.remove(0);
                 // 如果还有能挖矿的
                 if (harvestWorker != null) {
                     harvestBehavior(harvestWorker, p, gs);
                 }
-            }
-        } else {
-            for (int i = 0; i < harvestNum - 1; i++) {
-                if (freeWorkers.size() > 0) {
-                    harvestWorker = freeWorkers.remove(0);
-                    // 如果还有能挖矿的
-                    if (harvestWorker != null) {
-                        harvestBehavior(harvestWorker, p, gs);
-                    }
-                } else {
-                    break;
-                }
+            } else {
+                break;
             }
         }
+//        }
 
         for (Unit u : freeWorkers) meleeUnitBehavior(u, p, gs);
     }
 
     // 矿工行为
     public void harvestBehavior(Unit harvestWorker, Player p, GameState gs) {
+        /**
+         * TODO 更改挖矿逻辑，使其不陷入死锁
+         * 挖矿这里有bug，猜测是底层的问题。一旦资源不可达，则单位会陷入盲等，
+         * 且wait时间不断增加。目前已经尝试过：
+         * 由于没办法直接知道目标位置是否可达，导致了一系列问题。这里采用判断
+         * 当前状态是否为广义死锁（广义死锁：所有我方单位均为无任务或者有等待任务
+         * 状态；狭义死锁：所有我方单位均为有任务且等待任务状态），如果不是则正常
+         * 运行，否则执行以下操作：
+         * 首先将基地周围的单位作为当前矿工（猜测围住基地导致基地不可达，从而也会导致死锁），
+         * 改变当前矿工的采矿目标，全局维护一个HashMap<Long,ArrayList<Long>>，
+         * HashMap的key存储当前单位的ID，后面的ArrayList存储当前单位不可达的
+         * 资源列表。在每一次harvestBehavior中，首先对资源进行排序，将排序结果存储
+         * 在resourceList中，排序后从前往后遍历resourceList，如果当前资源在HashMap
+         * 中当前单位对应的ArrayList中，则代表该资源不可达，继续往后遍历，直到找到
+         * 可达的最近资源。
+         * 尝试解除死锁的失败尝试：
+         * 1. 让围在基地周边的单位去挖矿。矿工、资源、基地位置均可达，但是调用
+         *    harvest()后依然陷入盲等
+         * 2. 让围在基地周边的单位move，经过尝试，如果目标位置无单位，则可以
+         *    暂时解除死锁，如果目标处有单位或不可达，则会继续陷入死锁，并且
+         *    后续wai时间也会不断增大，目前没有找到接口能够强行移除单位身上的
+         *    action
+         * 目前先搁置这个问题，直接让lock标志永远为false
+         */
         PhysicalGameState pgs = gs.getPhysicalGameState();
         Unit closestBase = null;
         Unit closestResource = null;
@@ -432,19 +450,29 @@ public class MyRobot extends AbstractionLayerAI {
         boolean lock = true;
 
 
-        // TODO 尝试解决死锁问题，未成功
+        // 判断是否死锁（广义死锁）
         List<Unit> unitList = pgs.getUnits();
         for (int i = 0; i < unitList.size(); i++) {
             Unit u = unitList.get(i);
             if (u.getPlayer() == p.getID() && u.getType() == workerType) {
                 UnitActionAssignment uaa = gs.getActionAssignment(u);
-                if (uaa == null) lock = false;
                 if (uaa != null && uaa.action.getType() != UnitAction.TYPE_NONE) {
                     lock = false;
                 }
-                if (!lock)
-                    preResource.clear();
-                break;
+                if (!lock) {
+                    preResource.put(harvestWorker.getID(), new ArrayList<>());
+                    break;
+                }
+            }
+        }
+
+        lock = false;
+
+        // 如果死锁
+        if (lock) {
+            List<Unit> lockWorkerList = getAroundBaseWorkers(p, gs);
+            if (lockWorkerList != null && lockWorkerList.size() != 0) {
+                harvestWorker = lockWorkerList.get((int) (Math.random() * (lockWorkerList.size() - 1)));
             }
         }
 
@@ -472,33 +500,21 @@ public class MyRobot extends AbstractionLayerAI {
                 }
             }
         }
-        System.out.println(preResource);
+
         // 想办法去最近的资源处挖矿
         for (int i = 0; i < resourceList.size(); i++) {
             Unit u1 = resourceList.get(i);
-            if (!lock || !preResource.contains(u1.getID())) {
+            if (!lock || preResource.get(harvestWorker.getID()) == null
+                    || preResource.get(harvestWorker.getID()) != null && !preResource.get(harvestWorker.getID()).contains(u1.getID())) {
                 closestResource = u1;
                 break;
             }
         }
-
-        // 想办法去最近的资源处挖矿
-//        for (Unit u1 : pgs.getUnits()) {
-//            for (Unit u2 : pgs.getUnits()) {
-//                if (u1.getType().isResource) {
-//                    if (!lock || !preResource.contains(u1.getID())) {
-//                        int d = Math.abs(u1.getX() - harvestWorker.getX()) + Math.abs(u1.getY() - harvestWorker.getY());
-//                        if (closestResource == null || d < closestDistance) {
-//                            closestResource = u1;
-//                            closestDistance = d;
-//                        }
-//                        System.out.println(u1.getID());
-//                        System.out.println(lock ? "lock" : "no");
-//
-//                    }
-//                }
-//            }
-//        }
+//        System.out.println(preResource.get(harvestWorker.getID()));
+//        System.out.println(harvestWorker);
+//        System.out.println(closestResource);
+//        System.out.println(resourceList);
+//        System.out.println(distanceList);
 
         closestDistance = 0;
         for (Unit u2 : pgs.getUnits()) {
@@ -511,21 +527,42 @@ public class MyRobot extends AbstractionLayerAI {
             }
         }
 
+
         // TODO 这里需要改
-        System.out.println(harvestWorker.getX() + "    " + harvestWorker.getY());
-        System.out.println(closestResource.getX() + "    " + closestResource.getY());
         if (closestResource != null && closestBase != null) {
             AbstractAction aa = getAbstractAction(harvestWorker);
-            if (!preResource.contains(closestResource.getID())) {
-                preResource.add(closestResource.getID());
-                System.out.println("111");
-            }
             if (aa instanceof Harvest) {
                 Harvest h_aa = (Harvest) aa;
                 if (h_aa.target != closestResource || h_aa.base != closestBase) {
                     harvest(harvestWorker, closestResource, closestBase);
+                    if (!preResource.get(harvestWorker.getID()).contains(closestResource.getID())) {
+                        preResource.get(harvestWorker.getID()).add(closestResource.getID());
+                    }
                 }
             } else {
+                if (lock) {
+//                    int x = (int) (Math.random() * (pgs.getWidth() - 1));
+//                    int y = (int) (Math.random() * (pgs.getHeight() - 1));
+//                    while (true) {
+//                        boolean flag = true;
+//                        for (Unit u2 : pgs.getUnits()) {
+//                            if (u2.getX() == x && u2.getY() == y && u2.getID() != harvestWorker.getID()) {
+//                                flag = false;
+//                            }
+//                        }
+//                        if (!flag) {
+//                            x = (int) (Math.random() * (15 - 1));
+//                            y = (int) (Math.random() * (15 - 1));
+//                        } else {
+//                            break;
+//                        }
+//                    }
+//                    move(harvestWorker, x, y);
+//                    System.out.println(x + "   " + y);
+//                    System.out.println(gs.getActionAssignment(harvestWorker));
+//                    System.out.println();
+                    return;
+                }
                 harvest(harvestWorker, closestResource, closestBase);
             }
         } else if (closestResource == null) {
@@ -538,48 +575,50 @@ public class MyRobot extends AbstractionLayerAI {
 
 
     // 工具类——实验证明死锁根本原因在于挖矿函数
-    // 判定死锁，并返回当前状态是否死锁
-//    public boolean removeLock(Player p, GameState gs) {
-//        PhysicalGameState pgs = gs.getPhysicalGameState();
-//        boolean flag = false;
-//        Unit base = null;
-//        int aroundBase = 0;
-//        for (Unit u : pgs.getUnits()) {
-//            if (u.getType() == baseType &&
-//                    u.getPlayer() == p.getID()) {
-//                base = u;
-//            }
-//        }
-//
-//        for (Unit u : pgs.getUnits()) {
-//            if (u.getPlayer() == p.getID()) {
-//                if (base != null) {
-//                    if (u.getX() == base.getX() + 1 && u.getY() == base.getY()
-//                            || u.getX() == base.getX() - 1 && u.getY() == base.getY()
-//                            || u.getX() == base.getX() && u.getY() == base.getY() + 1
-//                            || u.getX() == base.getX() && u.getY() == base.getY() - 1) {
-//                        // 如果围满了，则疏通
-//                        if (aroundBase >= 3) {
-//                            flag = true;
-//                            int x = (int) (1 + Math.random() * (pgs.getWidth() + 1));
-//                            int y = (int) (1 + Math.random() * (pgs.getHeight() + 1));
-//                            move(u, x, y);
-//                            // 如果有战争迷雾，那就展开地毯式搜索
-////                            for (int i = 0; i < pgs.getWidth(); i++) {
-////                                for (int j = 0; j < pgs.getHeight(); j += 3) {
-//////                                    System.out.println(i + "   " + j);
-////                                    move(u, i, j);
-////                                }
-////                            }
-//                            aroundBase--;
-//                        }
-//                        aroundBase++;
-//                    }
-//                }
-//            }
-//        }
-//        return flag;
-//    }
+    // 返回基地周边的worker
+    public List<Unit> getAroundBaseWorkers(Player p, GameState gs) {
+        PhysicalGameState pgs = gs.getPhysicalGameState();
+        ArrayList<Unit> aroundBaseWorkers = new ArrayList<>();
+        Unit base = null;
+        for (Unit u : pgs.getUnits()) {
+            if (u.getType() == baseType &&
+                    u.getPlayer() == p.getID()) {
+                base = u;
+                for (Unit u1 : pgs.getUnits()) {
+                    if (u1.getPlayer() == p.getID() && base != null) {
+                        if (u1.getType() == workerType && 1 == Math.abs(u1.getX() - base.getX()) + Math.abs(u1.getY() - base.getY())) {
+                            aroundBaseWorkers.add(u1);
+                        }
+                    }
+                }
+            }
+        }
+
+        return aroundBaseWorkers;
+    }
+
+    // 判断是否死锁（狭义死锁）
+    public boolean isLock(Player p, GameState gs) {
+        System.out.println("lock");
+        PhysicalGameState pgs = gs.getPhysicalGameState();
+        boolean lock = true;
+        // 判断是否死锁
+        List<Unit> unitList = pgs.getUnits();
+        for (int i = 0; i < unitList.size(); i++) {
+            Unit u = unitList.get(i);
+            if (u.getPlayer() == p.getID()) {
+                UnitActionAssignment uaa = gs.getActionAssignment(u);
+                if (uaa == null) lock = false;
+                if (uaa != null && uaa.action.getType() != UnitAction.TYPE_NONE) {
+                    lock = false;
+                }
+                if (!lock) {
+                    break;
+                }
+            }
+        }
+        return lock;
+    }
 
 
     @Override
