@@ -29,6 +29,9 @@ public class MyRobot extends AbstractionLayerAI {
     UnitType barracksType;
     UnitType heavyType;
     UnitType lightType;
+    UnitType rangeType;
+    int heavyAndRangeTime = 0;
+    int workerAndRangeTime = 0;
 
     // 对于某个单位而言的无效资源列表ID，用于解决死锁问题
     HashMap<Long, List<Long>> preResource = new HashMap<Long, List<Long>>();
@@ -54,6 +57,7 @@ public class MyRobot extends AbstractionLayerAI {
             barracksType = utt.getUnitType("Barracks");
             heavyType = utt.getUnitType("Heavy");
             lightType = utt.getUnitType("Light");
+            rangeType = utt.getUnitType("Ranged");
         }
     }
 
@@ -140,27 +144,32 @@ public class MyRobot extends AbstractionLayerAI {
 
         // 判断还有没有基地
         if (myBases.size() == 0 && enemyBases.size() == 0) {
-            System.out.println("双方家都没了");
+//            System.out.println("双方家都没了");
         } else if (myBases.size() == 0) {
-            System.out.println("我们家没了");
+//            System.out.println("我们家没了");
         } else if (enemyBases.size() == 0) {
-            System.out.println("对面家没了");
+//            System.out.println("对面家没了");
         } else {
             // 获取两个基地之间的距离，目前只对第一个基地进行计算
             distanceOfBases = Math.sqrt(Math.pow(myBases.get(0).getX() - enemyBases.get(0).getX(), 2) + Math.pow(myBases.get(0).getY() - enemyBases.get(0).getY(), 2));
         }
 
-        if (distanceOfBases < 16) {
+        if (myBases.size() > 2) {
+            workerAndRangeTactic(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
+        }
+
+        if (distanceOfBases < 15) {
             // 如果距离很小，采取偷家策略
-            stealHomeTactics(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
-        } else if (distanceOfBases < 20) {
-            stealHomeTactics(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
-        } else if (distanceOfBases < 46) {
-            // 如果距离较小，采取双矿工workRush策略
-            workRushTactics(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
+            workerAndRangeTactic(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
+        } else if (distanceOfBases < 16) {
+            // 如果距离中等，采取worker和range共同出击
+            workerAndRangeTactic(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
+        } else if (distanceOfBases < 17) {
+            // 如果距离较大，采取worker和range共同出击
+            workerAndRangeTactic(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
         } else {
             // 如果距离够远，有足够的时间建造兵营，那么建造兵营，让heavy攻击，双矿工
-            heavyRushTactics(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
+            workerAndRangeTactic(gs, pgs, p, myBases, myBarracks, myMeleeUnit, myWorkers, enemyBases);
         }
     }
 
@@ -184,10 +193,10 @@ public class MyRobot extends AbstractionLayerAI {
         }
         for (Unit u : myMeleeUnit) {
             if (gs.getActionAssignment(u) == null) {
-                meleeUnitBehavior(u, p, gs);
+                meleeUnitBehavior(u, p, gs, true);
             }
         }
-        workersBehavior(myWorkers, p, gs, false, 1);
+        workersBehavior(myWorkers, p, gs, false, 1, true);
     }
 
     // 稍微有点脑子的workerRush策略
@@ -210,68 +219,83 @@ public class MyRobot extends AbstractionLayerAI {
         }
         for (Unit u : myMeleeUnit) {
             if (gs.getActionAssignment(u) == null) {
-                meleeUnitBehavior(u, p, gs);
+                meleeUnitBehavior(u, p, gs, false);
             }
         }
-        workersBehavior(myWorkers, p, gs, false, 2);
+        workersBehavior(myWorkers, p, gs, false, 2, false);
     }
 
     // 主要攻击策略——重装策略
-    public void heavyRushTactics(GameState gs, PhysicalGameState pgs, Player p,
-                                 List<Unit> myBases,
-                                 List<Unit> myBarracks,
-                                 List<Unit> myMeleeUnit,
-                                 List<Unit> myWorkers,
-                                 List<Unit> enemyBases) {
+    public void heavyAndRangeTactic(GameState gs, PhysicalGameState pgs, Player p,
+                                    List<Unit> myBases,
+                                    List<Unit> myBarracks,
+                                    List<Unit> myMeleeUnit,
+                                    List<Unit> myWorkers,
+                                    List<Unit> enemyBases) {
         // 安排起来
         for (Unit u : myBases) {
             if (gs.getActionAssignment(u) == null) {
                 // 至少有两个worker，一个采矿，一个造兵营
-                if (myWorkers.size() < 2) {
+                if (myWorkers.size() < 3) {
                     baseBehavior(u, p, pgs);
                 }
             }
         }
         for (Unit u : myBarracks) {
             if (gs.getActionAssignment(u) == null) {
-                barracksBehavior(u, p, pgs, heavyType);
+                if (heavyAndRangeTime == 2) {
+                    heavyAndRangeTime = 0;
+                    barracksBehavior(u, p, pgs, rangeType);
+                } else {
+                    heavyAndRangeTime++;
+                    barracksBehavior(u, p, pgs, heavyType);
+                }
             }
         }
         for (Unit u : myMeleeUnit) {
             if (gs.getActionAssignment(u) == null) {
-                meleeUnitBehavior(u, p, gs);
+                meleeUnitBehavior(u, p, gs, false);
             }
         }
-        workersBehavior(myWorkers, p, gs, true, 2);
+        workersBehavior(myWorkers, p, gs, true, 2, false);
     }
 
-    // 可能以后会用的轻兵策略
-    public void lightRushTactics(GameState gs, PhysicalGameState pgs, Player p,
-                                 List<Unit> myBases,
-                                 List<Unit> myBarracks,
-                                 List<Unit> myMeleeUnit,
-                                 List<Unit> myWorkers,
-                                 List<Unit> enemyBases) {
+    // worker+range
+    public void workerAndRangeTactic(GameState gs, PhysicalGameState pgs, Player p,
+                                     List<Unit> myBases,
+                                     List<Unit> myBarracks,
+                                     List<Unit> myMeleeUnit,
+                                     List<Unit> myWorkers,
+                                     List<Unit> enemyBases) {
         // 安排起来
         for (Unit u : myBases) {
             if (gs.getActionAssignment(u) == null) {
                 // 至少有两个worker，一个采矿，一个造兵营
-                if (myWorkers.size() < 2) {
+                if (myWorkers.size() < 1) {
+                    workerAndRangeTime++;
                     baseBehavior(u, p, pgs);
+                } else {
+                    if (workerAndRangeTime != 2) {
+                        workerAndRangeTime++;
+                        baseBehavior(u, p, pgs);
+                    }
                 }
             }
         }
         for (Unit u : myBarracks) {
             if (gs.getActionAssignment(u) == null) {
-                barracksBehavior(u, p, pgs, lightType);
+                if (workerAndRangeTime == 2) {
+                    workerAndRangeTime = 0;
+                    barracksBehavior(u, p, pgs, rangeType);
+                }
             }
         }
         for (Unit u : myMeleeUnit) {
             if (gs.getActionAssignment(u) == null) {
-                meleeUnitBehavior(u, p, gs);
+                meleeUnitBehavior(u, p, gs, false);
             }
         }
-        workersBehavior(myWorkers, p, gs, true, 2);
+        workersBehavior(myWorkers, p, gs, true, 3, false);
     }
 
     // 韬光养晦策略，全民挖矿
@@ -286,7 +310,7 @@ public class MyRobot extends AbstractionLayerAI {
                 barracksBehavior(u, p, pgs, heavyType);
             }
         }
-        workersBehavior(myWorkers, p, gs, true, -1);
+        workersBehavior(myWorkers, p, gs, true, -1, false);
     }
 
 
@@ -303,31 +327,45 @@ public class MyRobot extends AbstractionLayerAI {
     }
 
     // 攻击单位行为
-    public void meleeUnitBehavior(Unit u, Player p, GameState gs) {
+    public void meleeUnitBehavior(Unit u, Player p, GameState gs, boolean attackSoldierFisrt) {
         PhysicalGameState pgs = gs.getPhysicalGameState();
         Unit closestEnemy = null;
         int closestDistance = 0;
-        for (Unit u2 : pgs.getUnits()) {
-            if (u2.getPlayer() >= 0 && u2.getPlayer() != p.getID()) {
-                int d = Math.abs(u2.getX() - u.getX()) + Math.abs(u2.getY() - u.getY());
-                if (closestEnemy == null || d < closestDistance) {
-                    closestEnemy = u2;
-                    closestDistance = d;
+
+        // 小地图优先攻击兵
+        if (attackSoldierFisrt) {
+            for (Unit u2 : pgs.getUnits()) {
+                if (u2.getPlayer() >= 0 && u2.getPlayer() != p.getID() && u2.getType() != baseType && u2.getType() != barracksType) {
+                    int d = Math.abs(u2.getX() - u.getX()) + Math.abs(u2.getY() - u.getY());
+                    if (closestEnemy == null || d < closestDistance) {
+                        closestEnemy = u2;
+                        closestDistance = d;
+                    }
+                }
+            }
+            if (closestEnemy == null) {
+                for (Unit u2 : pgs.getUnits()) {
+                    if (u2.getPlayer() >= 0 && u2.getPlayer() != p.getID()) {
+                        int d = Math.abs(u2.getX() - u.getX()) + Math.abs(u2.getY() - u.getY());
+                        if (closestEnemy == null || d < closestDistance) {
+                            closestEnemy = u2;
+                            closestDistance = d;
+                        }
+                    }
+                }
+            }
+        } else {
+            for (Unit u2 : pgs.getUnits()) {
+                if (u2.getPlayer() >= 0 && u2.getPlayer() != p.getID()) {
+                    int d = Math.abs(u2.getX() - u.getX()) + Math.abs(u2.getY() - u.getY());
+                    if (closestEnemy == null || d < closestDistance) {
+                        closestEnemy = u2;
+                        closestDistance = d;
+                    }
                 }
             }
         }
-//        // 优先攻击最近单位
-//        for (Unit u2 : pgs.getUnits()) {
-//            if (u2.getPlayer() >= 0 && u2.getPlayer() != p.getID()) {
-//                if (u2.getType() == baseType) {
-//                    int d = Math.abs(u2.getX() - u.getX()) + Math.abs(u2.getY() - u.getY());
-//                    if (d < 5) {
-//                        closestEnemy = u2;
-//                        closestDistance = d;
-//                    }
-//                }
-//            }
-//        }
+
         if (closestEnemy != null) {
             attack(u, closestEnemy);
         } else {
@@ -342,20 +380,39 @@ public class MyRobot extends AbstractionLayerAI {
 
     // worker行为
     // 如果没有base，尝试建造，如果有要求建造兵营，则建造兵营，闲杂人等攻击
-    public void workersBehavior(List<Unit> workers, Player p, GameState gs, boolean buildBarracks, int harvestNum) {
+    public void workersBehavior(List<Unit> workers, Player p, GameState gs, boolean buildBarracks, int harvestNum, boolean attackSoldierFisrt) {
         PhysicalGameState pgs = gs.getPhysicalGameState();
         int nbases = 0;
+        int nbarracks = 0;
         int resourcesUsed = 0;
+        int basex = 0;
+        int basey = 0;
         Unit harvestWorker = null;
         Unit buildBasesWorker = null;
         Unit buildBarracksWorker = null;
         List<Unit> freeWorkers = new LinkedList<Unit>(workers);
 
+        Unit closeen = null;
+        int d = 100;
+
         if (workers.isEmpty()) return;
 
         for (Unit u2 : pgs.getUnits()) {
             if (u2.getType() == baseType &&
-                    u2.getPlayer() == p.getID()) nbases++;
+                    u2.getPlayer() == p.getID()) {
+                nbases++;
+                basex = u2.getX();
+                basey = u2.getY();
+            }
+            if (u2.getType() == barracksType &&
+                    u2.getPlayer() == p.getID()) nbarracks++;
+            if (u2.getPlayer() != p.getID() && u2.getType().canAttack) {
+                int d1 = Math.abs(u2.getX() - basex) + Math.abs(u2.getY() - basey);
+                if (d1 <= d) {
+                    d = d1;
+                    closeen = u2;
+                }
+            }
         }
 
         // 如果没有base，尝试建造
@@ -369,56 +426,49 @@ public class MyRobot extends AbstractionLayerAI {
             }
         }
 
-        if (freeWorkers.size() > 0) harvestWorker = freeWorkers.remove(0);
-
-        // 矿工行为
-        if (harvestWorker != null) {
-            harvestBehavior(harvestWorker, p, gs);
-        }
-
+//        if (freeWorkers.size() > 0) harvestWorker = freeWorkers.remove(0);
+//
+//        // 矿工行为
+//        if (harvestWorker != null) {
+//            harvestBehavior(harvestWorker, p, gs);
+//        }
         // 建造兵营
         if (buildBarracks) {
-            if (freeWorkers.size() > 0) {
+            if (freeWorkers.size() > 0 && nbarracks == 0) {
                 buildBarracksWorker = freeWorkers.remove(0);
                 // 如果资源够就造兵营
                 if (p.getResources() >= barracksType.cost + resourcesUsed) {
-                    buildIfNotAlreadyBuilding(buildBarracksWorker, barracksType, buildBarracksWorker.getX(), buildBarracksWorker.getY(), reservedPositions, p, pgs);
+                    buildIfNotAlreadyBuilding(buildBarracksWorker, barracksType, basex + 2, basey - 1, reservedPositions, p, pgs);
+//                    buildIfNotAlreadyBuilding(buildBarracksWorker, barracksType, buildBarracksWorker.getX(), buildBarracksWorker.getY(), reservedPositions, p, pgs);
                 } else {
                     // 否则先去挖矿
-                    harvestBehavior(buildBarracksWorker, p, gs);
+                    harvestBehavior(buildBarracksWorker, p, gs, attackSoldierFisrt);
                 }
             }
         }
 
-//        if (harvestNum == -1) {
-//            // 全民挖矿积累资源，同时造兵
-//            while (freeWorkers.size() > 0) {
-//                harvestWorker = freeWorkers.remove(0);
-//                // 如果还有能挖矿的
-//                if (harvestWorker != null) {
-//                    harvestBehavior(harvestWorker, p, gs);
-//                }
-//            }
-//            return;
-//        } else {
-        for (int i = 0; i < harvestNum - 1; i++) {
+        for (int i = 0; i < harvestNum; i++) {
             if (freeWorkers.size() > 0) {
-                harvestWorker = freeWorkers.remove(0);
-                // 如果还有能挖矿的
-                if (harvestWorker != null) {
-                    harvestBehavior(harvestWorker, p, gs);
+                if (d < 4) {
+                    Unit a1 = freeWorkers.remove(0);
+                    attack(a1, closeen);
+                } else {
+                    harvestWorker = freeWorkers.remove(0);
+                    // 如果还有能挖矿的
+                    if (harvestWorker != null) {
+                        harvestBehavior(harvestWorker, p, gs, attackSoldierFisrt);
+                    }
                 }
             } else {
                 break;
             }
         }
-//        }
 
-        for (Unit u : freeWorkers) meleeUnitBehavior(u, p, gs);
+        for (Unit u : freeWorkers) meleeUnitBehavior(u, p, gs, attackSoldierFisrt);
     }
 
     // 矿工行为
-    public void harvestBehavior(Unit harvestWorker, Player p, GameState gs) {
+    public void harvestBehavior(Unit harvestWorker, Player p, GameState gs, boolean attackSoldierFisrt) {
         /**
          * TODO 更改挖矿逻辑，使其不陷入死锁
          * 挖矿这里有bug，猜测是底层的问题。一旦资源不可达，则单位会陷入盲等，
@@ -533,11 +583,11 @@ public class MyRobot extends AbstractionLayerAI {
             AbstractAction aa = getAbstractAction(harvestWorker);
             if (aa instanceof Harvest) {
                 Harvest h_aa = (Harvest) aa;
-                if (h_aa.target != closestResource || h_aa.base != closestBase) {
+                if (h_aa.getTarget() != closestResource || h_aa.getBase() != closestBase) {
                     harvest(harvestWorker, closestResource, closestBase);
-                    if (!preResource.get(harvestWorker.getID()).contains(closestResource.getID())) {
-                        preResource.get(harvestWorker.getID()).add(closestResource.getID());
-                    }
+//                    if (!preResource.get(harvestWorker.getID()).contains(closestResource.getID())) {
+//                        preResource.get(harvestWorker.getID()).add(closestResource.getID());
+//                    }
                 }
             } else {
                 if (lock) {
@@ -565,11 +615,17 @@ public class MyRobot extends AbstractionLayerAI {
                 }
                 harvest(harvestWorker, closestResource, closestBase);
             }
-        } else if (closestResource == null) {
+        } else if (closestResource == null && closestBase != null) {
+            if (harvestWorker.getResources() != 0) {
+                harvest(harvestWorker, harvestWorker, closestBase);
+            } else {
+                meleeUnitBehavior(harvestWorker, p, gs, attackSoldierFisrt);
+            }
+        } else {
             // 前面已经判断过能否建造基地了，所以此时必然是没有资源同时没有基地的窘境
             // 进退维谷，四面楚歌，此时不杀，更待何时？！
             // 杀！
-            meleeUnitBehavior(harvestWorker, p, gs);
+            meleeUnitBehavior(harvestWorker, p, gs, attackSoldierFisrt);
         }
     }
 
