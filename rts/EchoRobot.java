@@ -26,7 +26,7 @@ import rts.units.*;
 /*
  * 算法说明：对战场局势进行分析，并根据战场形势采取不同策略
  */
-public class echorobot extends AbstractionLayerAI {
+public class EchoRobot extends AbstractionLayerAI {
     Random r = new Random();
     protected UnitTypeTable utt;
     UnitType workerType;
@@ -42,11 +42,11 @@ public class echorobot extends AbstractionLayerAI {
     // 对于某个单位而言的无效资源列表ID，用于解决死锁问题
     HashMap<Long, List<Long>> preResource = new HashMap<Long, List<Long>>();
 
-    public echorobot(UnitTypeTable a_utt) {
+    public EchoRobot(UnitTypeTable a_utt) {
         this(a_utt, new AStarPathFinding());
     }
 
-    public echorobot(UnitTypeTable a_utt, PathFinding a_pf) {
+    public EchoRobot(UnitTypeTable a_utt, PathFinding a_pf) {
         super(a_pf);
         reset(a_utt);
     }
@@ -68,7 +68,7 @@ public class echorobot extends AbstractionLayerAI {
     }
 
     public AI clone() {
-        return new echorobot(utt, pf);
+        return new EchoRobot(utt, pf);
     }
 
     /*
